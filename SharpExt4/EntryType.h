@@ -29,15 +29,16 @@
 #pragma once
 
 namespace SharpExt4 {
-    enum class EntryType{
+    public enum class EntryType
+    {
         UNKNOWN = 0,
-        REG_FILE,
-        DIR,
-        CHRDEV,
-        BLKDEV,
-        FIFO,
-        SOCK,
-        SYMLINK
+        REG_FILE = 1,
+        DIR = 2,
+        CHRDEV = 3,
+        BLKDEV = 4,
+        FIFO = 5,
+        SOCK = 6,
+        SYMLINK = 7,
     };
 }
 

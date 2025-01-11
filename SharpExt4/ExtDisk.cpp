@@ -36,12 +36,19 @@ using namespace System::IO;
 /// Constructor for ExtDisk
 /// </summary>
 /// <param name="diskPath">Linux disk path</param>
-SharpExt4::ExtDisk::ExtDisk(String^ diskPath)
+SharpExt4::ExtDisk::ExtDisk(String^ diskPath) :
+	bdevs(nullptr),
+	bd(nullptr),
+	capacity(0),
+	geometry(nullptr),
+	diskPath(diskPath),
+	_isRawMode(false),
+	_rawStream(nullptr),
+	partitions(nullptr)
 {
-	diskPath = diskPath;
 	auto input_name = (char*)Marshal::StringToHGlobalAnsi(diskPath).ToPointer();
-	//ext4_io_raw_filename(input_name);
 	bd = ext4_io_raw_dev_get(input_name);
+	Marshal::FreeHGlobal(IntPtr(input_name));
 }
 
 /// <summary>
@@ -51,16 +58,29 @@ SharpExt4::ExtDisk::ExtDisk(String^ diskPath)
 /// <returns></returns>
 SharpExt4::ExtDisk^ SharpExt4::ExtDisk::Open(String^ imagePath)
 {
-	if (File::Exists(imagePath))
-	{
-		auto disk = gcnew ExtDisk(imagePath);
-		disk->bdevs = new ext4_mbr_bdevs();
+	if (String::IsNullOrEmpty(imagePath))
+		return nullptr;
 
+	try
+	{
+		// First try to open as raw ext4
+		auto disk = OpenRawExt4(imagePath);
+		if (disk != nullptr)
+			return disk;
+
+		// If raw ext4 fails, try as MBR disk
+		disk = gcnew ExtDisk(imagePath);
+		disk->bdevs = new ext4_mbr_bdevs();
+		
 		auto r = ext4_mbr_scan(disk->bd, disk->bdevs);
 		if (r == EOK)
 		{
 			disk->capacity = disk->bd->part_offset;
-			disk->geometry = gcnew SharpExt4::Geometry(disk->bd->part_size, disk->bd->bdif->ph_tcnt, disk->bd->bdif->ph_scnt, disk->bd->bdif->ph_bsize);
+			disk->geometry = gcnew SharpExt4::Geometry(
+				disk->bd->part_size, 
+				disk->bd->bdif->ph_tcnt, 
+				disk->bd->bdif->ph_scnt, 
+				disk->bd->bdif->ph_bsize);
 
 			disk->partitions = gcnew List<Partition^>();
 
@@ -75,7 +95,10 @@ SharpExt4::ExtDisk^ SharpExt4::ExtDisk::Open(String^ imagePath)
 		}
 		throw gcnew IOException("Could not read disk MBR.");
 	}
-	throw gcnew FileNotFoundException("Could not find file '" + imagePath +"'.");
+	catch (...)
+	{
+		return nullptr;
+	}
 }
 
 /// <summary>
@@ -99,8 +122,21 @@ array<Byte>^ SharpExt4::ExtDisk::GetMasterBootRecord()
 /// </summary>
 SharpExt4::ExtDisk::~ExtDisk()
 {
-	ext4_block_fini(bd);
-	delete bdevs;
+	if (_rawStream != nullptr)
+	{
+		delete _rawStream;
+		_rawStream = nullptr;
+	}
+	if (bd != nullptr)
+	{
+		ext4_block_fini(bd);
+		bd = nullptr;
+	}
+	if (bdevs != nullptr)
+	{
+		delete bdevs;
+		bdevs = nullptr;
+	}
 }
 
 /// <summary>
@@ -155,4 +191,59 @@ SharpExt4::Geometry^ SharpExt4::ExtDisk::Geometry::get()
 IList<SharpExt4::Partition^>^ SharpExt4::ExtDisk::Partitions::get()
 {
 	return partitions;
+}
+
+/// <summary>
+/// Opens a raw ext4 filesystem image without MBR
+/// </summary>
+/// <param name="path">Path to the raw ext4 image file</param>
+/// <returns>ExtDisk instance configured for raw ext4 access</returns>
+SharpExt4::ExtDisk^ SharpExt4::ExtDisk::OpenRawExt4(String^ path)
+{
+	if (String::IsNullOrEmpty(path))
+		return nullptr;
+
+	try 
+	{
+		// Create new disk instance
+		auto disk = gcnew ExtDisk(path);
+		disk->_isRawMode = true;
+		
+		// Convert path to native string
+		IntPtr ptr = Marshal::StringToHGlobalAnsi(path);
+		const char* nativePath = static_cast<const char*>(ptr.ToPointer());
+		
+		// Get raw blockdev
+		disk->bd = ext4_io_raw_dev_get(nativePath);
+		Marshal::FreeHGlobal(ptr);
+		
+		if (disk->bd == nullptr)
+			return nullptr;
+
+		// Create a single partition spanning the whole file
+		disk->partitions = gcnew List<Partition^>();
+		auto partition = gcnew Partition();
+		partition->Offset = 0;
+		partition->Size = (gcnew FileInfo(path))->Length;
+		disk->partitions->Add(partition);
+		
+		return disk;
+	}
+	catch (Exception^ ex)
+	{
+		Console::WriteLine("Error opening raw ext4: {0}", ex->Message);
+		return nullptr;
+	}
+}
+
+SharpExt4::ExtDisk::ExtDisk() : 
+	bdevs(nullptr),
+	bd(nullptr),
+	capacity(0),
+	geometry(nullptr),
+	diskPath(nullptr),
+	_isRawMode(false),
+	_rawStream(nullptr),
+	partitions(nullptr)
+{
 }

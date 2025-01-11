@@ -27,6 +27,11 @@
  */
 
 #pragma once
+
+#include <vcclr.h>
+#include <ctime>
+#include "DateTimeUtils.h"
+
 using namespace System;
 using namespace System::IO;
 using namespace System::Collections::Generic;
@@ -40,37 +45,84 @@ using namespace System::Text::RegularExpressions;
 namespace SharpExt4 {
 	ref class ExtFileStream;
 
-	public ref class ExtFileSystem sealed
+	public ref class ExtFileSystem sealed : IDisposable
 	{
 	private:
 		String^ mountPoint = "/";
 		char* devName = nullptr;
-		static DateTime TheEpoch = DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind::Utc);
 		SharpExt4::ExtDisk^ disk = nullptr;
 		ExtFileSystem(ExtDisk^ disk);
-		void DoSearch(List<String^>^ results, String^ path, Regex^ regex, bool subFolders, bool dirs, bool files);
 		List<ExtDirEntry^>^ GetDirectory(String^ path);
+		void DoSearch(List<String^>^ results, String^ path, Regex^ regex, bool subFolders, bool dirs, bool files);
+		bool disposed;
+
+	protected:
+		// Finalizer
+		!ExtFileSystem() 
+		{ 
+			if (!disposed)
+			{
+				// cleanup native resources
+				if (devName != nullptr)
+				{
+					delete[] devName;
+					devName = nullptr;
+				}
+				disposed = true;
+			}
+		}
 
 	public:
-#pragma region File related API
+		// Implement IDisposable
+		property bool IsDisposed 
+		{
+			bool get() { return disposed; }
+		}
+
+	private:
+		void CleanUp(bool disposing)
+		{
+			if (!disposed)
+			{
+				if (disposing)
+				{
+					// cleanup managed resources
+					if (disk != nullptr)
+					{
+						delete disk;
+						disk = nullptr;
+					}
+				}
+				// cleanup native resources
+				this->!ExtFileSystem();
+				disposed = true;
+			}
+		}
+
+	public:
+		void Close()
+		{
+			CleanUp(true);
+			System::GC::SuppressFinalize(this);
+		}
+
+		// File related API
 		void CopyFile(String^ sourceFile, String^ destinationFile, bool overwrite);
 		void RenameFile(String^ sourceFileName, String^ destFileName);
 		void DeleteFile(String^ path);
 		bool FileExists(String^ path);
 		String^ ReadSymLink(String^ path);
 		array<String^>^ GetFiles(String^ path, String^ searchPattern, SearchOption searchOption);
-		SharpExt4::ExtFileStream^ OpenFile(String^ path, FileMode mode, FileAccess access);
-#pragma endregion
+		ExtFileStream^ OpenFile(String^ path, FileMode mode, FileAccess access);
 
-#pragma region Directory related API
+		// Directory related API
 		void CreateDirectory(String^ path);
 		void DeleteDirectory(String^ path);
 		bool DirectoryExists(String^ path);
-		array<String^>^ GetDirectories(String^ path, String^ searchPattern, SearchOption searchOption); 
+		array<String^>^ GetDirectories(String^ path, String^ searchPattern, SearchOption searchOption);
 		void MoveDirectory(String^ sourceDirectoryName, String^ destinationDirectoryName);
-#pragma endregion
 
-#pragma region Common API
+		// Common API
 		DateTime^ GetCreationTime(String^ path);
 		void SetCreationTime(String^ path, DateTime newTime);
 		DateTime GetLastAccessTime(String^ path);
@@ -85,9 +137,9 @@ namespace SharpExt4 {
 		Tuple<uint32_t, uint32_t>^ GetOwner(String^ path);
 		void SetOwner(String^ path, uint32_t uid, uint32_t gid);
 		void Truncate(String^ path, uint64_t size);
-		static ExtFileSystem^ Open(SharpExt4::ExtDisk^ disk, SharpExt4::Partition^ partition);
-#pragma endregion
+		static ExtFileSystem^ Open(ExtDisk^ disk, Partition^ partition);
 
+		// Properties
 		property String^ Name { String^ get(); }
 		property String^ Description { String^ get(); }
 		property String^ VolumeLabel { String^ get(); }

@@ -48,7 +48,11 @@ namespace SharpExt4 {
 		uint64_t capacity;
 		Geometry^ geometry;
 		String^ diskPath;
+		bool _isRawMode;
+		System::IO::FileStream^ _rawStream;
+
 		ExtDisk(String^ diskPath);
+		ExtDisk();
 		IList<Partition^>^ partitions;
 
 	public:
@@ -65,6 +69,13 @@ namespace SharpExt4 {
 		/// <param name="imagePath">Linux disk image file name</param>
 		/// <returns></returns>
 		static ExtDisk^ Open(String^ imagePath);
+
+		/// <summary>
+		/// Opens a raw ext4 filesystem image without MBR
+		/// </summary>
+		/// <param name="path">Path to the raw ext4 image file</param>
+		/// <returns>ExtDisk instance configured for raw ext4 access</returns>
+		static ExtDisk^ OpenRawExt4(String^ path);
 
 		/// <summary>
 		/// Linux disk capacity
